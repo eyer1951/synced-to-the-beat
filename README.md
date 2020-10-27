@@ -21,4 +21,4 @@ Frizting file is included. Parts list:
 - TMC2130 Silent Stepstick dev board
 - IRLB8721 N-Channel MOSFET
 - VS1838B IR Receiver
--
+
