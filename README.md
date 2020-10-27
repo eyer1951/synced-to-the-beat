@@ -5,7 +5,7 @@ A raspberry pi/ESP32 project involving musical beat detection and stepper motors
 I used the 38-pin ESP32 development boards available from A-Z Delivery https://az-delivery.com/products/esp32-developmentboard or Amazon https://www.amazon.com/AZDelivery-Nodemcu-CP2102-Module-Development/dp/B07H3TTCCW/
 
 ## Silent Step Stick
-This is the TMC2130 chip made by Trinamic. Info at https://www.trinamic.com/support/eval-kits/details/silentstepstick/. _Note that you need the SPI version of hte development board._
+This is the TMC2130 chip made by Trinamic. Info at https://www.trinamic.com/support/eval-kits/details/silentstepstick/. _Note that you need the SPI version of the development board. Non-SPI ones look similar but need a next-to-impossible modification to enable SPI._
 
 ## PCB Parts List
 Frizting file is included. Parts list:
@@ -18,7 +18,7 @@ Frizting file is included. Parts list:
 - C9: 1uF
 - D2: 1N5817
 
-TMC2130 Silent Stepstick dev board
-IRLB8721 N-Channel MOSFET
-VS1838B IR Receiver
-- 
+- TMC2130 Silent Stepstick dev board
+- IRLB8721 N-Channel MOSFET
+- VS1838B IR Receiver
+-
