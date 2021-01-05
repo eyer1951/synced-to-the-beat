@@ -1,0 +1,13 @@
+[Unit]
+Description=Beat Blast service
+After=multi-user.target
+Environment=/home/pi
+
+[Service]
+Type=idle
+WorkingDirectory=/home/pi/madmom
+ExecStart=/usr/bin/python3 /home/pi/madmom/bin/beat4aBlast
+User=pi
+
+[Install]
+WantedBy=multi-user.target
