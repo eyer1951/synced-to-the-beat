@@ -1,0 +1,164 @@
+﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<meta name='viewport' 
+     content='width=device-width, initial-scale=1.0, maximum-scale=1.0, 
+     user-scalable=0' />
+<title>Ball Control</title>
+<style type="text/css">
+.cntr {
+	text-align: center;
+	padding: 6%;
+}
+@viewport {
+    max-zoom: 1.1;
+    user-zoom: fixed;
+}
+
+button {
+    font-size: 16 px;
+}
+</style>
+<script type="text/javascript">
+var txQueueInterval = 20;  // milliseconds interval between running WS queue
+var txQueue = [];           // queue of commands to send
+var connection;             // will be the WebSocket after call to new
+var open = false;
+var wsURL = "";
+var openURL = "";
+var ready = false;
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function WSQueueManager() {  // set to run every txQueueInterval ms
+    try {
+        var i = connection.readyState;
+    } catch(e) {
+        return;
+    }
+
+    if (connection.readyState != WebSocket.OPEN) 
+        return;
+	if (txQueue.length > 0) {
+		connection.send(txQueue[0]);
+		txQueue.shift();  // remove the element we just sent (the first)
+	}
+}
+
+function wsSend(s) {
+	txQueue.push(s);
+}
+
+async function connect() {
+    sleep(500);
+    if (open) {
+        try {
+            connection.close();
+        } catch {
+
+        }
+        timerString = "Reconnecting...";
+        sleep(1000);
+    }
+    wsURL = 'ws://10.0.0.32:8888/ws';
+    connection = new WebSocket(wsURL);
+    console.log(wsURL + "  WS readyState is " + connection.readyState);
+    timerString = "Connecting";
+
+    connection.onopen = function () {
+
+    try {
+        rs = connection.readyState;
+    } catch(e) {
+        return;
+    }
+        console.log('WebSocket connection opened');
+        // If this stepper is second to open, copy params to first
+        // if this stepper is first, get params
+        open = true;
+}
+
+    connection.onerror = function(error) {
+        console.log('WebSocket Error ', error);
+        document.getElementById('connectOK').innerHTML = "Error";
+        reEnable();
+    };
+
+    connection.onmessage = function(e) {
+        var v;
+        console.log('Received: ', e.data);
+        document.getElementById('degC').innerHTML = e.data + "&deg;C";
+    };
+
+    connection.onclose = function() {
+        console.log('WebSocket (' + sn + ') connection closed');
+        connection = null;
+        open = false;
+        emptyQ();
+        established = false;
+        showConStatus();
+        setTimeout(function () {connect(sn); }, 5000);
+    };
+}
+
+async function getGoing() {
+    connect();
+    setInterval("WSQueueManager()", txQueueInterval);
+} 
+
+function butt(butNo, s) {
+	if (open) {
+		console.log(s + " (R" + butNo + ")");
+		wsSend("R" + butNo + "\r");
+	}
+}
+
+</script>
+</head>
+
+<body onload="getGoing()">
+
+<table style="width: 100%; background-color: #009999; max-width:600px; margin-left:auto; margin-right:auto; ">
+	<tr>
+		<td style="width:25%">&nbsp;</td>
+		<td style="width:25%">&nbsp;</td>
+		<td style="width:25%">&nbsp;</td>
+		<td style="width:25%"><div id="degC">&nbsp;</div></td>
+	</tr>
+
+	<tr>
+		<td style="width:25%">&nbsp;</td>
+		<td class="cntr" colspan="2">
+			<button type="submit" style="border: 0; background: transparent" onclick="butt(1, 'OFF')">
+	    	<img src="OFF.png" width="100%" alt="OFF" /></button>
+		</td>
+		<td style="width:25%">&nbsp;</td>
+	</tr>
+	<tr>
+		<td class="cntr"  colspan="2">
+			<button type="submit" style="border: 0; background: transparent" onclick="butt(2, 'ON')">
+	    	<img src="ON.png" width="100%"  alt="ON" /></button>
+		</td>
+		<td class="cntr" colspan="2">
+			<button type="submit" style="border: 0; background: transparent" onclick="butt(3, 'UP')">
+	    	<img src="UP.png" width="100%" alt="UP" /></button>
+		</td>
+	</tr>
+	<tr>
+		<td class="cntr" colspan="2">
+			<button type="submit" style="border: 0; background: transparent" onclick="butt(4, 'STILL')">
+	    	<img src="STILL.png" width="100%" alt="STILL" /></button>
+		</td>
+		<td class="cntr" colspan="2">
+			<button type="submit" style="border: 0; background: transparent" onclick="butt(5, 'DOWN')">
+	    	<img src="DOWN.png" width="100%" alt="DOWN" /></button>
+		</td>
+	</tr>
+</table>
+
+</body>
+
+</html>
