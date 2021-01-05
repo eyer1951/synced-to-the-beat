@@ -1,0 +1,183 @@
+#!/usr/bin/env python
+# encoding: utf-8
+''' 9/25/2020
+Beat4aBlast v1.0
+Based on madmom
+Sends averaged beat period out onboard tty port, 1Mbps
+Tracks and sends beat phase; detects missing beats based on average prior intervals
+    To allow receivers to synchronize for half-speed, or for motor direction sync
+WebSockets Server to accept IR remote control commands. Forwards to serial port.
+'''
+
+import websocket
+import _thread
+import threading
+
+import numpy as np
+from madmom.features.beats import DBNBeatTrackingProcessor, RNNBeatProcessor
+from madmom.models import BEATS_LSTM
+from madmom.processors import IOProcessor, process_online
+from numpy_ringbuffer import RingBuffer
+import psutil, os
+import time
+from multiprocessing import Manager, Queue
+import serial
+import queue
+
+import tornado.httpserver
+import tornado.websocket
+import tornado.ioloop
+import tornado.web
+import tornado.platform.asyncio
+import socket
+import asyncio
+
+#ser = serial.Serial('com19', baudrate = 1000000, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout = 80000, xonxoff=0, dsrdtr=0)
+ser = serial.Serial("/dev/ttyS0", 1000000)
+
+TWOPI = 2*np.pi
+RADPERDEGREE = 45/np.pi
+DAMP = 0.5
+MAX_BPM = 155
+MIN_BPM = 55
+
+# GLOBALS
+last_real_T_ms = 0
+beat_phase = 0;
+
+kwargs = dict(
+    fps = 100,
+    correct = True,
+    infile = None,
+    outfile = None,
+    max_bpm = MAX_BPM,
+    min_bpm = MIN_BPM,
+    nn_files = [BEATS_LSTM[1], ],  # , BEATS_LSTM[1]
+    num_frames = 1,
+    list_stream_input_device = 0,
+#    stream_input_device = 2,
+    online = True,
+    #verbose = 1
+)
+
+class WSHandler(tornado.websocket.WebSocketHandler):
+    def open(self):
+        print('new connection')
+      
+    def on_message(self, message):
+        print('IR command: {}'.format(message))
+        ser.write(message.encode())
+        temp = f"Temp: {get_cpu_temp():.2f}"
+        self.write_message(temp)
+ 
+    def on_close(self):
+        print('connection closed')
+ 
+    def check_origin(self, origin):
+        return True
+ 
+application = tornado.web.Application([
+    (r'/ws', WSHandler),
+])
+
+def get_cpu_temp():
+    """
+    Obtains the current value of the CPU temperature.
+    :returns: Current value of the CPU temperature if successful, zero value otherwise.
+    :rtype: float
+    """
+    # Initialize the result.
+    result = 0.0
+    # The first line in this file holds the CPU temperature as an integer times 1000.
+    # Read the first line and remove the newline character at the end of the string.
+    with open('/sys/class/thermal/thermal_zone0/temp') as f:
+        line = f.readline().strip()
+    # Test if the string is an integer as expected.
+    if line.isdigit():
+        # Convert the string with the CPU temperature to a float in degrees Celsius.
+        result = float(line) / 1000
+    # Give the result back to the caller.
+    return result
+
+def bpm_to_ms_period(bpm):
+    return 60000 / bpm
+
+def ms_period_to_bpm(msp):
+    return 60000 / msp
+
+depth = 5
+rxq = queue.Queue(depth)  # queue of corrected-if-necessary timing of received beats
+max_period = bpm_to_ms_period(MIN_BPM)
+min_period = bpm_to_ms_period(MAX_BPM)
+
+def into_my_q(o, q):
+    global depth
+    if q.qsize() == depth:
+        q.get()  # dump one
+    q.put(o)
+
+def average_q(q):
+    sum = 0
+    items = 0
+    for elem in list(q.queue):
+        sum += elem
+        items += 1
+    if items == 0:
+        return 0
+    return sum / items
+
+
+def beat_callback(beats, output=None):
+    global last_real_T_ms, beat_phase
+    if len(beats) > 0:
+        b = beats[0]
+        this_real_T_ms = time.time() * 1000              # milliseconds since epoch
+        interval = (this_real_T_ms - last_real_T_ms)     # determine milliseconds since last beat
+        if interval > 3 * max_period:   # no beats for a while; clear the queue first to start over
+            for elem in list(rxq.queue):
+                rxq.get()  # dump each
+            last_real_T_ms = this_real_T_ms
+            return
+
+        if rxq.qsize() > 0:  # if we have at least one entry in the queue
+            if interval >= min_period and interval <= 3 * max_period:  # if this interval looks valid
+                ta = average_q(rxq)                  # average over all entries in the queue
+    # determine if we have skipped any beats
+                m = round(interval / ta);  # if = 1, no beat skipped; if = 2, one beat skipped, etc.
+                if (m < 1):
+                    m = 1;
+                adjusted_interval = interval / m;
+                into_my_q(adjusted_interval, rxq)                    # add actually-received period to the queue
+
+                beat_phase = (m + beat_phase) % 4;  # next phase please
+                beat_char = chr(ord('a') + beat_phase)
+                s = "T{}{:.0f}\r".format(beat_char, adjusted_interval)
+                ser.write(s.encode())
+                bpm = ms_period_to_bpm(adjusted_interval)
+                print("T{}{:.0f} ({:.0f})".format(beat_char, adjusted_interval, bpm))
+        else:   # queue just filling
+            into_my_q(interval, rxq)                    # add actually-received period to the queue           
+        last_real_T_ms = this_real_T_ms
+
+def websocketIOloop():
+    http_server = tornado.httpserver.HTTPServer(application)
+    http_server.listen(8888)
+    myIP = socket.gethostbyname(socket.gethostname())
+    print('*** Websocket Server Started at {}***'.format(myIP))
+    tornado.ioloop.IOLoop.instance().start()
+
+if __name__ == '__main__':
+    print("Starting Beat4aBlast! v1.0")
+    print('Current CPU temperature is {:.2f} degrees Celsius.'.format(get_cpu_temp()))
+    asyncio.set_event_loop_policy(tornado.platform.asyncio.AnyThreadEventLoopPolicy())
+    x = threading.Thread(target=websocketIOloop,)
+    x.start()
+
+    ser.write("a\r".encode())   # indicate to Repeater we're starting up
+
+    in_processor = RNNBeatProcessor(**kwargs)
+    beat_processor = DBNBeatTrackingProcessor(**kwargs)
+    out_processor = [beat_processor, beat_callback]
+    processor = IOProcessor(in_processor, out_processor)
+    process_online(processor,  **kwargs)
+    
